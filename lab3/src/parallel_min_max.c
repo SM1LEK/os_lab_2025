@@ -41,23 +41,35 @@ int main(int argc, char **argv) {
           case 0:
             seed = atoi(optarg);
             // your code here
+            if (seed <= 0) {
+              printf("+seed\n");
+              return 1;
+            }
             // error handling
             break;
           case 1:
             array_size = atoi(optarg);
             // your code here
+            if (array_size <= 0) {
+              printf("+array_size\n");
+              return 1;
+            }
             // error handling
             break;
           case 2:
             pnum = atoi(optarg);
             // your code here
+            if (pnum <= 0) {
+              printf("+pnum\n");
+              return 1;
+            }
             // error handling
             break;
           case 3:
             with_files = true;
             break;
 
-          defalut:
+          default:
             printf("Index %d is out of options\n", option_index);
         }
         break;
@@ -91,6 +103,17 @@ int main(int argc, char **argv) {
   struct timeval start_time;
   gettimeofday(&start_time, NULL);
 
+  int (*pipes)[2] = NULL;
+  if (!with_files) {
+    pipes = malloc(sizeof(int[2]) * pnum);
+    for (int i = 0; i < pnum; i++) {
+      if (pipe(pipes[i]) < 0) {
+        printf("Не удалось создать канал\n");
+        return 1;
+      }
+    }
+  }
+
   for (int i = 0; i < pnum; i++) {
     pid_t child_pid = fork();
     if (child_pid >= 0) {
@@ -100,11 +123,31 @@ int main(int argc, char **argv) {
         // child process
 
         // parallel somehow
+        unsigned int chunk = array_size / pnum;
+        unsigned int begin = i * chunk;
+        unsigned int end = begin + chunk;
+        if (i == pnum - 1) {
+          end = array_size;
+        }
+
+        struct MinMax local = GetMinMax(array, begin, end);
 
         if (with_files) {
           // use files here
+          char filename[64];
+          sprintf(filename, "min_max_%d.txt", i);
+          FILE *file = fopen(filename, "w");
+          if (file == NULL) {
+            printf("Не удалось открыть файл %s\n", filename);
+            return 1;
+          }
+          fprintf(file, "%d %d\n", local.min, local.max);
+          fclose(file);
         } else {
           // use pipe here
+          close(pipes[i][0]);
+          write(pipes[i][1], &local, sizeof(struct MinMax));
+          close(pipes[i][1]);
         }
         return 0;
       }
@@ -117,7 +160,7 @@ int main(int argc, char **argv) {
 
   while (active_child_processes > 0) {
     // your code here
-
+    wait(NULL);
     active_child_processes -= 1;
   }
 
@@ -131,8 +174,23 @@ int main(int argc, char **argv) {
 
     if (with_files) {
       // read from files
+      char filename[64];
+      sprintf(filename, "min_max_%d.txt", i);
+      FILE *file = fopen(filename, "r");
+      if (file == NULL) {
+        printf("Не удалось открыть файл %s\n", filename);
+        return 1;
+      }
+      fscanf(file, "%d %d", &min, &max);
+      fclose(file);
+      remove(filename);
     } else {
       // read from pipes
+      struct MinMax local;
+      read(pipes[i][0], &local, sizeof(struct MinMax));
+      close(pipes[i][0]);
+      min = local.min;
+      max = local.max;
     }
 
     if (min < min_max.min) min_max.min = min;
